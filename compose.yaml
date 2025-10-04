@@ -18,7 +18,7 @@ services:
     image: mhd0/express-backend:latest
     container_name: express-api
     ports:
-      - "5001:5001"
+      - "5001:5000"
     environment:
       - NODE_ENV=production
       - PORT=5001
