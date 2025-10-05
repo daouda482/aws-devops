@@ -1,155 +1,57 @@
 pipeline {
     agent any
 
-    tools {
-        nodejs "NodeJS_16"
-    }
-
     environment {
-        DOCKER_HUB_USER = 'daouda482'
-        FRONT_IMAGE = 'react-frontend'
-        BACK_IMAGE  = 'express-backend'
-    }
-    triggers {
-        // Pour que le pipeline démarre quand le webhook est reçu
-        GenericTrigger(
-            genericVariables: [
-                [key: 'ref', value: '$.ref'],
-                [key: 'pusher_name', value: '$.pusher.name'],
-                [key: 'commit_message', value: '$.head_commit.message']
-            ],
-            causeString: 'Push par $pusher_name sur $ref: "$commit_message"',
-            token: 'mysecret',
-            printContributedVariables: true,
-            printPostContent: true
-        )
+        IMAGE_NAME = "daouda482/react-frontend"
+        IMAGE_TAG = "latest"
     }
 
     stages {
+
         stage('Checkout') {
             steps {
+                echo "Récupération du code source depuis GitHub..."
                 git branch: 'main', url: 'https://github.com/daouda482/aws-devops.git'
             }
         }
 
-        stage('Install dependencies - Backend') {
-            steps {
-                dir('back-end') {
-                    sh 'npm install'
-                }
-            }
-        }
-
-        stage('Install dependencies - Frontend') {
-            steps {
-                dir('front-end') {
-                    sh 'npm install'
-                }
-            }
-        }
-
-        stage('Run Tests') {
-            steps {
-                script {
-                    sh 'cd back-end && npm test || echo "Aucun test backend"'
-                    sh 'cd front-end && npm test || echo "Aucun test frontend"'
-                }
-            }
-        }
-
-        pipeline {
-    agent any
-    stages {
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t daouda482/react-frontend:latest ./front-end'
-            }
-        }
-        stage('Push to DockerHub') {
-            steps {
-                withCredentials([string(credentialsId: 'dockerhub-token', variable: 'DOCKERHUB_TOKEN')]) {
-                    sh """
-                    echo "$DOCKERHUB_TOKEN" | docker login -u daouda482 --password-stdin
-                    docker push daouda482/react-frontend:latest
-                    """
-                }
-            }
-        }
-    }
-}
-        stage('Build Docker Images') {
-            steps {
-                sh 'docker build -t $DOCKER_HUB_USER/$FRONT_IMAGE:latest ./front-end'
-                sh 'docker build -t $DOCKER_HUB_USER/$BACK_IMAGE:latest ./back-end'
+                echo "Construction de l'image Docker..."
+                sh 'docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ./front-end'
             }
         }
 
-        stage('Push Docker Images') {
+        stage('Login to Docker Hub') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'daoudahub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh '''
-                        echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                        docker push $DOCKER_USER/react-frontend:latest
-                        docker push $DOCKER_USER/express-backend:latest
-                    '''
+                echo "Connexion à Docker Hub..."
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
                 }
             }
         }
 
-        // on supprime les conteneur inactif dans docker container
-        stage('Clean Docker') {
+        stage('Push Docker Image') {
             steps {
-                sh 'docker container prune -f'
-                sh 'docker image prune -f'
+                echo "Push de l'image sur Docker Hub..."
+                sh 'docker push ${IMAGE_NAME}:${IMAGE_TAG}'
             }
         }
 
-        stage('Check Docker & Compose') {
+        stage('Clean Up') {
             steps {
-                sh 'docker --version'
-                sh 'docker-compose --version || echo "docker-compose non trouvé"'
-            }
-        }
-
-        stage('Deploy (compose.yaml)') {
-            steps {
-                dir('.') {  
-                    sh 'docker-compose -f compose.yaml down || true'
-                    sh 'docker-compose -f compose.yaml pull'
-                    sh 'docker-compose -f compose.yaml up -d'
-                    sh 'docker-compose -f compose.yaml ps'
-                    sh 'docker-compose -f compose.yaml logs --tail=50'
-                }
-            }
-        }
-
-        stage('Smoke Test') {
-            steps {
-                sh '''
-                    echo " Vérification Frontend (port 5173)..."
-                    curl -f http://localhost:5173 || echo "Frontend unreachable"
-
-                    echo " Vérification Backend (port 5001)..."
-                    curl -f http://localhost:5001/api || echo "Backend unreachable"
-                '''
+                echo "Nettoyage des images locales..."
+                sh 'docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true'
             }
         }
     }
 
     post {
         success {
-            emailext(
-                subject: "Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: "Pipeline réussi\nDétails : ${env.BUILD_URL}",
-                to: "daoudaba679@gmail.com"
-            )
+            echo '✅ Build et push Docker terminés avec succès !'
         }
         failure {
-            emailext(
-                subject: "Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: "Le pipeline a échoué\nDétails : ${env.BUILD_URL}",
-                to: "daoudaba679@gmail.com"
-            )
+            echo '❌ Le pipeline a échoué.'
         }
     }
 }
