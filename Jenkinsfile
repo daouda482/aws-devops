@@ -57,12 +57,30 @@ pipeline {
             }
         }
 
+        pipeline {
+    agent any
+    stages {
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t daouda482/react-frontend:latest ./front-end'
+            }
+        }
+        stage('Push to DockerHub') {
+            steps {
+                withCredentials([string(credentialsId: 'dockerhub-token', variable: 'DOCKERHUB_TOKEN')]) {
+                    sh """
+                    echo "$DOCKERHUB_TOKEN" | docker login -u daouda482 --password-stdin
+                    docker push daouda482/react-frontend:latest
+                    """
+                }
+            }
+        }
+    }
+}
         stage('Build Docker Images') {
             steps {
-                script {
-                    sh "docker build -t $DOCKER_HUB_USER/$FRONT_IMAGE:latest ./front-end"
-                    sh "docker build -t $DOCKER_HUB_USER/$BACK_IMAGE:latest ./back-end"
-                }
+                sh 'docker build -t $DOCKER_HUB_USER/$FRONT_IMAGE:latest ./front-end'
+                sh 'docker build -t $DOCKER_HUB_USER/$BACK_IMAGE:latest ./back-end'
             }
         }
 
